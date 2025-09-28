@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>S</title>
+    <style>
+        @font-face {
+            font-family: 'Creep';
+            src: local('Courier New');
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            overflow: hidden;
+            cursor: none;
+            font-family: 'Creep', monospace;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            -khtml-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        #gameCanvas {
+            display: block;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+            filter: contrast(1.3) brightness(0.9) saturate(1.2);
+            max-width: 100vw;
+            max-height: 100vh;
+            margin: auto;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+        
+        .crt {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .crt::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 2;
+            background-size: 100% 6px, 4px 100%;
+            pointer-events: none;
+            animation: flicker 0.15s infinite;
+        }
+        
+        .crt::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: rgba(18, 16, 16, 0.1);
+            opacity: 0;
+            z-index: 2;
+            animation: scanline 8s linear infinite;
+            pointer-events: none;
+        }
+        
+        @keyframes flicker {
+            0% { opacity: 0.27861; }
+            5% { opacity: 0.34769; }
+            10% { opacity: 0.23604; }
+            15% { opacity: 0.90626; }
+            20% { opacity: 0.18128; }
+            25% { opacity: 0.83891; }
+            30% { opacity: 0.65583; }
+            35% { opacity: 0.67807; }
+            40% { opacity: 0.26559; }
+            45% { opacity: 0.84693; }
+            50% { opacity: 0.96019; }
+            55% { opacity: 0.08594; }
+            60% { opacity: 0.20313; }
+            65% { opacity: 0.71988; }
+            70% { opacity: 0.53455; }
+            75% { opacity: 0.37288; }
+            80% { opacity: 0.71428; }
+            85% { opacity: 0.70419; }
+            90% { opacity: 0.7003; }
+            95% { opacity: 0.36108; }
+            100% { opacity: 0.24387; }
+        }
+        
+        @keyframes scanline {
+            0% { transform: translateY(-100%); }
+            100% { transform: translateY(100%); }
+        }
+        
+        #score {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: rgb(208, 208, 208);
+            font-size: clamp(16px, 4vw, 24px);
+            text-shadow: 0 0 10px #0f0;
+            z-index: 10;
+        }
+        
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #f00;
+            font-size: clamp(32px, 8vw, 48px);
+            text-align: center;
+            display: none;
+            z-index: 10;
+            text-shadow: 0 0 20px #f00;
+        }
+        
+        .touch-controls {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5;
+            display: none;
+        }
+        
+        .touch-top {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 50%;
+            cursor: pointer;
+        }
+        
+        .touch-bottom {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 50%;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="crt">
+        <canvas id="gameCanvas"></canvas>
+        <div id="score">FEED THEM: 0</div>
+        <div id="gameOver">
+            THEY ARE STILL<br>HUNGRY<br>
+            <span style="font-size: clamp(16px, 4vw, 24px)">PRESS R TO RESET</span>
+        </div>
+        <div class="touch-controls">
+            <div class="touch-top"></div>
+            <div class="touch-bottom"></div>
+        </div>
+    </div>
+
+    <script>
+        
+const MAX_CHILDREN   = 20;
+const MAX_PARTICLES  = 150;
+const PARTICLES_PER_FEED = 20;
+const CAKE_RESPAWN_MS    = 200;
+
+const canvas = document.getElementById('gameCanvas');
+const ctx    = canvas.getContext('2d');
+const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+
+function resizeCanvas() {
+    const maxWidth = isMobile ? window.innerWidth : Math.min(window.innerWidth, 1200);
+    const maxHeight = isMobile ? window.innerHeight : Math.min(window.innerHeight, 600);
+    
+    canvas.width = maxWidth;
+    canvas.height = maxHeight;
+    
+    if (isMobile) {
+        document.querySelector('.touch-controls').style.display = 'block';
+    }
+}
+
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+const game = {
+    score: 0,
+    over : false,
+    scrollSpeed: 7,
+    children  : [],
+    particles : [],
+    lastSpawn : 0
+};
+
+const player = {
+    x: canvas.width / 3,
+    y: canvas.height / 2,
+    vy: 0,
+    width : 60,
+    height: 80,
+    cakeHeld: true,
+    cakeTimer: 0
+};
+
+const walkFrames = [
+  `
+XXXXXX11111XXXXX
+XXXXXX11111XXXXX
+XXXXXX11111XXXXX
+XXXX22111112XXXX
+X22221111111222X
+X22222222222222X
+X22222222222222X
+XXXX211221122XXX
+XXXX211221122XXX
+XX233332233332XX
+XX233331133332XX
+XX222333333322XX
+2222222222222222
+222X22222222X222
+222X21111112X222
+222X21111112X222
+222X21133112X222
+222X33311333X222
+222X33311333X222
+222X22222222X222
+222X222XX222X222
+XXXX222XX222XXXX
+XXXX222XX222XXXX
+XX22222XX222XXXX
+XX23333XX22222XX
+XXXXXXXXX33333XX
+`.trim().split('\n'),
+
+  `
+XXXXXX11111XXXXX
+XXXXXX11111XXXXX
+XXXXXX11111XXXXX
+XXXX22111112XXXX
+X22221111111222X
+X22222222222222X
+X22222222222222X
+XXXX211221122XXX
+XXXX211221122XXX
+XX233332233332XX
+XX233331133332XX
+XX222333333322XX
+2222222222222222
+222X22222222X222
+222X21111112X222
+222X21111112X222
+222X21133112X222
+222X33311333X222
+222X33311333X222
+222X22222222X222
+222X222XX222X222
+XXXX222XX222XXXX
+XXXX222XX222XXXX
+XXXX222XX22222XX
+XX22222XX33333XX
+XX23333XXXXXXXXX
+`.trim().split('\n')
+];
+
+const SCALE   = 4;
+const pal   = { X:null, 1:'#000', 2:'#AA6124', 3:'#FF851F' };
+
+let animTimer = 0;
+
+const childPool   = [];
+const particlePool= [];
+
+function getChild()   { return childPool.pop()   || new Child(0,0);   }
+function freeChild(c) { c.fed=false; childPool.push(c);               }
+function getParticle(){ return particlePool.pop()|| new Particle(0,0);}
+function freeParticle(p){particlePool.push(p);                        }
+
+class Child {
+    constructor(x,y){ this.reset(x,y); }
+    reset(x,y){
+        this.x=this.y=0;
+        this.x=x; this.y=y; this.fed=false; this.mouthOpen=false;
+        this.eyeSize=Math.random()*10+15; this.mouthWidth=Math.random()*20+30;
+        this.blinkTimer=0; this.toRemove=false;
+    }
+    draw(){
+        ctx.save(); ctx.translate(this.x,this.y);
+        ctx.fillStyle='#232323'; ctx.fillRect(-35,-50,70,100);
+        ctx.fillStyle='#353535'; ctx.fillRect(-35,-70,70,30);
+        ctx.fillStyle='#000'; const ey=-60;
+        ctx.fillRect(-25,ey,this.eyeSize,this.eyeSize);
+        ctx.fillRect(15,ey,this.eyeSize,this.eyeSize);
+        ctx.fillStyle='#000';
+        if(this.mouthOpen) ctx.fillRect(-this.mouthWidth/2,-45,this.mouthWidth,15);
+        else               ctx.fillRect(-this.mouthWidth/2,-45,this.mouthWidth,3);
+        ctx.strokeStyle='#222'; ctx.lineWidth=8; ctx.beginPath();
+        ctx.moveTo(-35,-30);ctx.lineTo(-55,40); ctx.moveTo(35,-30);ctx.lineTo(55,40);
+        ctx.stroke(); ctx.restore();
+    }
+    update(){
+        this.x-=game.scrollSpeed;
+        this.blinkTimer++;
+        if(this.blinkTimer>60&&Math.random()<.02){
+            this.eyeSize=(this.eyeSize===15?3:15); this.blinkTimer=0;
+        }
+        const d=Math.abs(player.x-this.x);
+        this.mouthOpen=(!this.fed&&d<100);
+        if(this.x<-100) this.toRemove=true;
+    }
+}
+class Particle {
+    constructor(x,y){ this.reset(x,y); }
+    reset(x,y){
+        this.x=x;this.y=y;
+        this.vx=(Math.random()-.5)*4; this.vy=(Math.random()-.5)*4; this.life=1;
+    }
+    update(){ this.x+=this.vx; this.y+=this.vy; this.vy+=.2; this.life-=.02; }
+    draw(){ ctx.fillStyle=`rgba(255,255,0,${this.life})`; ctx.fillRect(this.x,this.y,4,4); }
+}
+
+function drawPlayer() {
+    const frame = walkFrames[animTimer];
+    ctx.save();
+    ctx.translate(player.x - 8 * SCALE, player.y - 13 * SCALE);
+    for (let y = 0; y < frame.length; y++) {
+        for (let x = 0; x < frame[y].length; x++) {
+        const colour = pal[ frame[y][x] ];
+        if (colour) {
+            ctx.fillStyle = colour;
+            ctx.fillRect(x * SCALE, y * SCALE, SCALE, SCALE);
+        }
+        }
+    }
+    ctx.restore();
+
+    if (player.cakeHeld) {
+        ctx.save();
+        ctx.translate(player.x - (SCALE * 5), player.y - (SCALE * 5));
+        ctx.fillStyle = '#f4a460';
+        ctx.fillRect(-30, 30, 40, 30);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(-25, 25, 30, 10);
+        for (let i = 0; i < 3; i++) {
+        ctx.fillStyle = '#ff0';
+        ctx.fillRect(-20 + i * 10, 15, 3, 10);
+        ctx.fillStyle = '#f00';
+        ctx.fillRect(-20 + i * 10, 12, 3, 3);
+        }
+        ctx.restore();
+    }
+}
+
+function spawnChild(now){
+    if(game.children.length>=MAX_CHILDREN) return;
+    const want=Math.max(300,1800-game.score*25);
+    if(now-game.lastSpawn<want) return;
+    if(Math.random()>.02) return;
+    game.lastSpawn=now;
+    const c=getChild(); c.reset(canvas.width+50,Math.random()*(canvas.height-200)+100);
+    game.children.push(c); dirty=true;
+}
+function checkFeed(){
+    if(!player.cakeHeld) return;
+    for(const c of game.children){
+        if(c.fed) continue;
+        const d=Math.hypot(player.x-c.x,player.y-c.y);
+        if(d<80&&c.mouthOpen){
+            c.fed=true; player.cakeHeld=false; player.cakeTimer=performance.now();
+            game.score++; document.getElementById('score').textContent=`FEED THEM: ${game.score}`;
+            for(let i=0;i<PARTICLES_PER_FEED&&game.particles.length<MAX_PARTICLES;i++){
+                const p=getParticle(); p.reset(c.x,c.y); game.particles.push(p);
+            }
+            dirty=true; break;
+        }
+    }
+}
+function restoreCake(now){
+    if(!player.cakeHeld&&now-player.cakeTimer>CAKE_RESPAWN_MS){ player.cakeHeld=true; dirty=true; }
+}
+
+let lastDraw=0;
+let dirty   =true;
+
+function draw(now){
+    if(document.hidden){ raf(); return; }
+    if(game.over) return;
+
+    if(now-lastDraw<33.33){ raf(); return; }
+    lastDraw=now;
+
+    if(!dirty){ raf(); return; }
+    dirty=false;
+
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    game.children.forEach(c=>c.draw());
+    game.particles.forEach(p=>p.draw());
+    drawPlayer();
+
+    raf();
+}
+let animCounter = 0;
+
+function simulate(now){
+    if(document.hidden){ rafSim(); return; }
+    if(game.over) return;
+    if (++animCounter >= 20) {   
+        animCounter = 0;
+        animTimer ^= 1;                
+    }
+    player.vy*=0.9; player.y+=player.vy;
+    player.y=Math.max(50,Math.min(canvas.height-50,player.y));
+    if(player.vy!==0) dirty=true;
+
+    spawnChild(now);
+    restoreCake(now);
+    checkFeed();
+
+    for(let i=game.children.length-1;i>=0;--i){
+        const c=game.children[i]; c.update();
+        if(c.toRemove){ freeChild(c); game.children.splice(i,1); dirty=true; }
+    }
+
+    for(let i=game.particles.length-1;i>=0;--i){
+        const p=game.particles[i]; p.update();
+        if(p.life<=0){ freeParticle(p); game.particles.splice(i,1); dirty=true; }
+    }
+    rafSim();
+}
+
+let rafId, rafSimId;
+const raf   =()=>rafId   =requestAnimationFrame(draw);
+const rafSim=()=>rafSimId=requestAnimationFrame(simulate);
+
+window.addEventListener('keydown',e=>{
+    const k=e.key.toLowerCase();
+    if(k==='w'){ player.vy=-8; dirty=true; }
+    if(k==='s'){ player.vy= 8; dirty=true; }
+    if(k==='r') location.reload();
+});
+
+if (isMobile) {
+    const touchTop = document.querySelector('.touch-top');
+    const touchBottom = document.querySelector('.touch-bottom');
+    
+    touchTop.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        player.vy = -8;
+        dirty = true;
+    });
+    
+    touchBottom.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        player.vy = 8;
+        dirty = true;
+    });
+    
+    touchTop.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        player.vy = -8;
+        dirty = true;
+    });
+    
+    touchBottom.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        player.vy = 8;
+        dirty = true;
+    });
+}
+
+let resizeTm;
+window.addEventListener('resize',()=>{
+    clearTimeout(resizeTm);
+    resizeTm=setTimeout(()=>{ resizeCanvas(); dirty=true; },200);
+});
+
+raf();      
+rafSim();   
+</script>
+</body>
+</html>
